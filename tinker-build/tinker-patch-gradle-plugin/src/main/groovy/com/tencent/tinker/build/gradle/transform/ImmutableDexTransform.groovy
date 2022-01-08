@@ -256,7 +256,7 @@ public class ImmutableDexTransform extends Transform {
             String classIndexName = classZip.name - ".jar"
             String dexPath = "${dxOutDir.absolutePath}/${classIndexName}.dex"
             dexPathList.add(dexPath)
-            doDex(dexPath, classZip, project.android.getDexOptions())
+            doDex(dexPath, classZip)
         }
 
         checkClassConsistence(dexPathList, allClassSet)
@@ -329,7 +329,7 @@ public class ImmutableDexTransform extends Transform {
     }
 
 
-    private void doDex(String dexPath, File classZip, def dexOptions) {
+    private void doDex(String dexPath, File classZip) {
 
         def dexJar = "${project.android.getSdkDirectory()}/build-tools/${project.android.buildToolsVersion}/lib/dx.jar"
         def task = project.tasks.create("dx" + (classZip.name - ".jar") + varName, JavaExec.class, new Action<JavaExec>() {
@@ -337,13 +337,6 @@ public class ImmutableDexTransform extends Transform {
             void execute(JavaExec javaExec) {
                 ArrayList<String> execArgs = new ArrayList()
                 execArgs.add("--dex")
-                if (dexOptions.getJumboMode()) {
-                    execArgs.add("--force-jumbo")
-                }
-                if (dexOptions.getIncremental()) {
-                    execArgs.add("--incremental")
-                    execArgs.add("--no-strict")
-                }
                 execArgs.add("--output=${dexPath}")
                 execArgs.add(classZip.absolutePath)
                 project.logger.info(execArgs.toString())

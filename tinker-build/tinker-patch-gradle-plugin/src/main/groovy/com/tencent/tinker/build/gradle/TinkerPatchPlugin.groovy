@@ -70,16 +70,8 @@ class TinkerPatchPlugin implements Plugin<Project> {
         def android = mProject.extensions.android
 
         try {
-            //close preDexLibraries
-            android.dexOptions.preDexLibraries = false
-
-            //open jumboMode
-            android.dexOptions.jumboMode = true
-
             //disable dex archive mode
             disableArchiveDex()
-            //禁止打了运行时注解的类全部打到主dex中
-            android.dexOptions.keepRuntimeAnnotatedClasses = false
         } catch (Throwable e) {
             //no preDexLibraries field, just continue
         }
