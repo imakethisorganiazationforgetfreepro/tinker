@@ -25,19 +25,13 @@ import android.content.SharedPreferences;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.os.Build;
-import android.os.Build.VERSION;
 import android.text.TextUtils;
-
-import com.tencent.tinker.loader.TinkerRuntimeException;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -151,17 +145,9 @@ public class ShareTinkerInternals {
         return currentInstructionSet;
     }
 
-    public static boolean is32BitEnv() {
-        final String currISA = getCurrentInstructionSet();
-        return "arm".equals(currISA) || "x86".equals(currISA) || "mips".equals(currISA);
-    }
-
     public static boolean isSystemOTA(String lastFingerPrint) {
         String currentFingerprint = Build.FINGERPRINT;
-        if (lastFingerPrint == null
-            || lastFingerPrint.equals("")
-            || currentFingerprint == null
-            || currentFingerprint.equals("")) {
+        if (TextUtils.isEmpty(lastFingerPrint) || TextUtils.isEmpty(currentFingerprint)) {
             ShareTinkerLog.d(TAG, "fingerprint empty:" + lastFingerPrint + ",current:" + currentFingerprint);
             return false;
         } else {
@@ -243,8 +229,7 @@ public class ShareTinkerInternals {
             return ShareConstants.ERROR_PACKAGE_CHECK_PATCH_TINKER_ID_NOT_FOUND;
         }
         if (!oldTinkerId.equals(patchTinkerId)) {
-            ShareTinkerLog.e(TAG, "tinkerId in patch is not matched with the one in base pack, base: %s, patch: %s.",
-                    oldTinkerId, patchTinkerId);
+            ShareTinkerLog.e(TAG, "tinkerId is not equal, base is " + oldTinkerId + ", but patch is " + patchTinkerId);
             return ShareConstants.ERROR_PACKAGE_CHECK_TINKER_ID_NOT_EQUAL;
         }
         return ShareConstants.ERROR_PACKAGE_CHECK_OK;
@@ -404,51 +389,21 @@ public class ShareTinkerInternals {
         return ShareConstants.TINKER_ENABLE_CONFIG_PREFIX + ShareConstants.TINKER_VERSION + "_" + tmpTinkerId;
     }
 
-    private static final String SAFEMODE_COUNT_REC_PREFIX = "safemode_count_rec_";
-
     public static int getSafeModeCount(Context context) {
-        final String processName = ShareTinkerInternals.getProcessName(context);
-        final String recFileName = SAFEMODE_COUNT_REC_PREFIX + processName;
-        final File safeModeRecFile = new File(SharePatchFileUtil.getPatchDirectory(context), recFileName);
-        DataInputStream dis = null;
-        try {
-            dis = new DataInputStream(new FileInputStream(safeModeRecFile));
-            final String expectedKey = ShareConstants.TINKER_SAFE_MODE_COUNT_PREFIX + ShareConstants.TINKER_VERSION;
-            final String actualKey = dis.readUTF();
-            if (!expectedKey.equals(actualKey)) {
-                ShareTinkerLog.w(TAG, "getSafeModeCount: key is not equal, expt: %s, actul: %s, return 0 instead.", expectedKey, actualKey);
-                return 0;
-            }
-            final int count = dis.readInt();
-            ShareTinkerLog.i(TAG, "getSafeModeCount: count: %s", count);
-            return count;
-        } catch (Throwable ignored) {
-            ShareTinkerLog.w(TAG, "getSafeModeCount: recFileName:" + recFileName + " failed, return 0 instead.");
-            return 0;
-        } finally {
-            SharePatchFileUtil.closeQuietly(dis);
-        }
+        String processName = ShareTinkerInternals.getProcessName(context);
+        String preferName = ShareConstants.TINKER_OWN_PREFERENCE_CONFIG_PREFIX + processName;
+        SharedPreferences sp = context.getSharedPreferences(preferName, Context.MODE_PRIVATE);
+        int count = sp.getInt(ShareConstants.TINKER_SAFE_MODE_COUNT_PREFIX + ShareConstants.TINKER_VERSION, 0);
+        ShareTinkerLog.w(TAG, "getSafeModeCount: preferName:" + preferName + " count:" + count);
+        return count;
     }
 
     public static void setSafeModeCount(Context context, int count) {
-        final String processName = ShareTinkerInternals.getProcessName(context);
-        final String recFileName = SAFEMODE_COUNT_REC_PREFIX + processName;
-        final File safeModeRecFile = new File(SharePatchFileUtil.getPatchDirectory(context), recFileName);
-        if (!safeModeRecFile.exists()) {
-            safeModeRecFile.getParentFile().mkdirs();
-        }
-        DataOutputStream dos = null;
-        try {
-            dos = new DataOutputStream(new FileOutputStream(safeModeRecFile));
-            final String key = ShareConstants.TINKER_SAFE_MODE_COUNT_PREFIX + ShareConstants.TINKER_VERSION;
-            dos.writeUTF(key);
-            dos.writeInt(count);
-            ShareTinkerLog.i(TAG, "setSafeModeCount: count: %s", count);
-        } catch (Throwable ignored) {
-            ShareTinkerLog.w(TAG, "setSafeModeCount: recFileName:" + recFileName + " failed, return 0 instead.");
-        } finally {
-            SharePatchFileUtil.closeQuietly(dos);
-        }
+        String processName = ShareTinkerInternals.getProcessName(context);
+        String preferName = ShareConstants.TINKER_OWN_PREFERENCE_CONFIG_PREFIX + processName;
+        SharedPreferences sp = context.getSharedPreferences(preferName, Context.MODE_PRIVATE);
+        sp.edit().putInt(ShareConstants.TINKER_SAFE_MODE_COUNT_PREFIX + ShareConstants.TINKER_VERSION, count).commit();
+        ShareTinkerLog.w(TAG, "setSafeModeCount: preferName:" + preferName + " count:" + count);
     }
 
     public static boolean isTinkerEnabled(int flag) {
@@ -523,6 +478,18 @@ public class ShareTinkerInternals {
         if (am == null) {
             return;
         }
+
+        String mainProcessName = context.getPackageName();
+
+        try {
+            ApplicationInfo pkgInfo = context
+                .getPackageManager()
+                .getApplicationInfo(context.getPackageName(), PackageManager.GET_META_DATA);
+            mainProcessName = pkgInfo.processName;
+        } catch (Throwable e) {
+            // ignore
+        }
+
         List<ActivityManager.RunningAppProcessInfo> appProcessList = am.getRunningAppProcesses();
         if (appProcessList != null) {
             // NOTE: getRunningAppProcess() ONLY GIVE YOU THE PROCESS OF YOUR OWN PACKAGE IN ANDROID M
@@ -531,7 +498,7 @@ public class ShareTinkerInternals {
                 if (ai.uid != android.os.Process.myUid()) {
                     continue;
                 }
-                if (ai.processName.equals(context.getPackageName())) {
+                if (ai.processName.equals(mainProcessName)) {
                     continue;
                 }
                 android.os.Process.killProcess(ai.pid);
@@ -619,6 +586,15 @@ public class ShareTinkerInternals {
         return null;
     }
 
+    private static boolean isNewerOrEqualThanVersion(int apiLevel, boolean includePreviewVer) {
+        if (includePreviewVer && Build.VERSION.SDK_INT >= 23) {
+            return Build.VERSION.SDK_INT >= apiLevel
+                    || ((Build.VERSION.SDK_INT == apiLevel - 1) && Build.VERSION.PREVIEW_SDK_INT > 0);
+        } else {
+            return Build.VERSION.SDK_INT >= apiLevel;
+        }
+    }
+
     /**
      * vm whether it is art
      *
@@ -659,32 +635,6 @@ public class ShareTinkerInternals {
             ShareTinkerLog.e(TAG, "isVmJitInternal ex:" + e);
         }
         return false;
-    }
-
-    public static boolean isNewerOrEqualThanVersion(int apiLevel, boolean includePreviewVer) {
-        if (includePreviewVer && Build.VERSION.SDK_INT >= 23) {
-            return Build.VERSION.SDK_INT >= apiLevel
-                    || ((Build.VERSION.SDK_INT == apiLevel - 1) && Build.VERSION.PREVIEW_SDK_INT > 0);
-        } else {
-            return Build.VERSION.SDK_INT >= apiLevel;
-        }
-    }
-
-    public static boolean isOlderOrEqualThanVersion(int apiLevel, boolean includePreviewVer) {
-        if (includePreviewVer && Build.VERSION.SDK_INT >= 23) {
-            return Build.VERSION.SDK_INT <= apiLevel
-                    || ((Build.VERSION.SDK_INT == apiLevel - 1) && Build.VERSION.PREVIEW_SDK_INT > 0);
-        } else {
-            return Build.VERSION.SDK_INT <= apiLevel;
-        }
-    }
-
-    /**
-     * @return true if system version is in range [lowApiLevel, hiApiLevel].
-     */
-    public static boolean isVersionInRange(int lowApiLevel, int hiApiLevel, boolean includePreviewVer) {
-        return isNewerOrEqualThanVersion(lowApiLevel, includePreviewVer) &&
-                isOlderOrEqualThanVersion(hiApiLevel, includePreviewVer);
     }
 
     public static String getExceptionCauseString(final Throwable ex) {
@@ -735,35 +685,4 @@ public class ShareTinkerInternals {
         }
     }
 
-    public static void cleanPatch(Context context) {
-        if (context == null) {
-            throw new TinkerRuntimeException("context is null");
-        }
-        final File tinkerDir = SharePatchFileUtil.getPatchDirectory(context);
-        if (!tinkerDir.exists()) {
-            ShareTinkerLog.printErrStackTrace(TAG, new Throwable(),"try to clean patch while there're not any applied patches.");
-            return;
-        }
-        final File patchInfoFile = SharePatchFileUtil.getPatchInfoFile(tinkerDir.getAbsolutePath());
-        if (!patchInfoFile.exists()) {
-            ShareTinkerLog.printErrStackTrace(TAG, new Throwable(), "try to clean patch while patch info file does not exist.");
-            return;
-        }
-        final File patchInfoLockFile = SharePatchFileUtil.getPatchInfoLockFile(tinkerDir.getAbsolutePath());
-        final SharePatchInfo patchInfo = SharePatchInfo.readAndCheckPropertyWithLock(patchInfoFile, patchInfoLockFile);
-        if (patchInfo != null) {
-            if (!patchInfo.newVersion.equals(patchInfo.oldVersion)) {
-                // newVersion hasn't been loaded yet, we can remove it directly now.
-                final String patchName = SharePatchFileUtil.getPatchVersionDirectory(patchInfo.newVersion);
-                SharePatchFileUtil.deleteDir(new File(tinkerDir, patchName));
-                patchInfo.newVersion = patchInfo.oldVersion;
-                patchInfo.versionToRemove = "";
-            } else {
-                patchInfo.versionToRemove = patchInfo.newVersion;
-            }
-            SharePatchInfo.rewritePatchInfoFileWithLock(patchInfoFile, patchInfo, patchInfoLockFile);
-        } else {
-            ShareTinkerLog.printErrStackTrace(TAG, new Throwable(), "fail to get patchInfo.");
-        }
-    }
 }
