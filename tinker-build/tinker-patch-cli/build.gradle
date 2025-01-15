@@ -1,5 +1,4 @@
 apply plugin: 'java-library'
-apply plugin: "com.github.johnrengelman.shadow"
 
 version rootProject.ext.VERSION_NAME
 group rootProject.ext.GROUP
@@ -22,7 +21,7 @@ jar {
 }
 
 // copy the jar to work directory
-task buildTinkerSdk(type: Copy, dependsOn: [clean, shadowJar]) {
+task buildTinkerSdk(type: Copy, dependsOn: [clean]) {
     group = "tinker"
     from('build/libs') {
         include '*.jar'
